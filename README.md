@@ -7,7 +7,7 @@ EOC.
 ## Depends on
 * Arduino core - https://github.com/Lahorde/arduino_core_avr
 * Event manager - https://github.com/Lahorde/event_manager
-* Logger 
+* Logger - https://github.com/Lahorde/logger.git 
 * PinChangeInt - https://github.com/asheeshr/PinChangeInt
 * LT_SPI - http://www.linear.com/product/LTC2442#code
 
@@ -18,4 +18,4 @@ A pinout file pinout.h describing used PINS for your application must be provide
 An event file events.h describing all application events. All events listeners will be notified in user context. Events can be emitted in interrupted context.
 
 #TODO
-Deliver sample application, logger repo
+Deliver sample application
