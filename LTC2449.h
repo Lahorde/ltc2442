@@ -137,8 +137,8 @@ Read Channel 0 in Single-Ended with OSR of 65536
 #ifndef LTC2449_H
 #define LTC2449_H
 
-#include "event_manager.h"
-#include "logger.h"
+#include <event_manager.h>
+#include <logger.h>
 
 #define LTC2449_RESOLUTION          24
 #define LTC2449_SUB_LSB_RESOLUTION  5

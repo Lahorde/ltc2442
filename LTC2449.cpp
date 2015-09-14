@@ -61,10 +61,10 @@
 #include <stdint.h>
 #include <logger.h>
 #include <math.h>
-#include "wiringPiSPI.h"
-#include "wiringPi.h"
-#include "LTC2449.h"
+#include <wiringPiSPI.h>
+#include <wiringPi.h>
 
+#include "LTC2449.h"
 #include "pinout.h"
 #include "events.h"
 
