@@ -1,61 +1,55 @@
-/*!
-LTC2449: 24-Bit, 16-Channel Delta Sigma ADCs with Selectable Speed/Resolution.
+/******************************************************************************
+ * @file    LTC2449.cpp
+ * @author  Rémi Pincent - INRIA
+ * @date    15 avr. 2015
+ *
+ * @brief Driver for LTC2449: 24-Bit, 16-Channel Delta Sigma ADCs with Selectable Speed/Resolution.
+ * Initial version from : http://www.linear.com/product/LTC2442#code
+ * Raspberry implementation
+ * Refer copyright below
+ *
+ * Project : ltc2449
+ * Contact:  Rémi Pincent - remi.pincent@inria.fr
+ *
+ * Revision History: refer https://github.com/Lahorde/ltc2442
+ *
+ * Copyright (c) 2013, Linear Technology Corp.(LTC)
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * The views and conclusions contained in the software and documentation are those
+ * of the authors and should not be interpreted as representing official policies,
+ * either expressed or implied, of Linear Technology Corp.
+ *
+ * The Linear Technology Linduino is not affiliated with the official Arduino team.
+ * However, the Linduino is only possible because of the Arduino team's commitment
+ * to the open-source community.  Please, visit http://www.arduino.cc and
+ * http://store.arduino.cc , and consider a purchase that will help fund their
+ * ongoing work.
+ * http://www.linear.com/product/LTC2449
+ *
+ * http://www.linear.com/product/LTC2449#demoboards
+ *****************************************************************************/
 
-@verbatim
-
-The LTC2444/LTC2445/LTC2448/LTC2449 are 8-/16-channel (4-/8-differential)
-high speed 24-bit No Latency Delta Sigma ADCs. They use a proprietary
-delta-sigma architecture enabling variable speed/resolution. Through a
-simple 4-wire serial interface, ten speed/resolution combinations
-6.9Hz/280nVRMS to 3.5kHz/25uVRMS (4kHz with external oscillator) can be
-selected with no latency between conversion results or shift in DC accuracy
-(offset, full-scale, linearity, drift). Additionally, a 2X speed mode can
-be selected enabling output rates up to 7kHz (8kHz if an external
-oscillator is used) with one cycle latency.
-
-@endverbatim
-
-http://www.linear.com/product/LTC2449
-
-http://www.linear.com/product/LTC2449#demoboards
-
-REVISION HISTORY
-$Revision: 2026 $
-$Date: 2013-10-14 13:52:48 -0700 (Mon, 14 Oct 2013) $
-
-Copyright (c) 2013, Linear Technology Corp.(LTC)
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, this
-   list of conditions and the following disclaimer.
-2. Redistributions in binary form must reproduce the above copyright notice,
-   this list of conditions and the following disclaimer in the documentation
-   and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-The views and conclusions contained in the software and documentation are those
-of the authors and should not be interpreted as representing official policies,
-either expressed or implied, of Linear Technology Corp.
-
-The Linear Technology Linduino is not affiliated with the official Arduino team.
-However, the Linduino is only possible because of the Arduino team's commitment
-to the open-source community.  Please, visit http://www.arduino.cc and
-http://store.arduino.cc , and consider a purchase that will help fund their
-ongoing work.
-*/
 
 //! @defgroup LTC2449 LTC2449: 24-Bit, 16-Channel Delta Sigma ADCs with Selectable Speed/Resolution
 
@@ -65,16 +59,25 @@ ongoing work.
 */
 
 #include <stdint.h>
-#include <Arduino.h>
-#include <PinChangeInt.h>
 #include <logger.h>
-#include "pinout.h"
-#include "LT_SPI.h"
+#include <math.h>
+#include "wiringPiSPI.h"
+#include "wiringPi.h"
 #include "LTC2449.h"
+
+#include "pinout.h"
 #include "events.h"
 
 #define ADC_DATA_AND_SUB_LSB_MASK     ((1UL << (CONVERSION_24_BITS_POS + LTC2449_RESOLUTION)) - 1)
 #define ADC_NEGATIVE_VALUE_MASK       ((1UL << EOC_BIT_POS) | (1UL << DUMMY_BIT_POS) | (1UL << SIGN_BIT_POS))
+
+/** default SPI on rpi */
+#ifndef LTC_2449_SPI_CHANNEL
+#define LTC_2449_SPI_CHANNEL 0
+#endif
+
+/** SPI Mode is 0 for LTC244x */
+#define LTC_2449_SPI_MODE 0
 
 //! Lookup table to build the command for single-ended mode
 const uint16_t BUILD_COMMAND_SINGLE_ENDED[16] = {LTC2449_CH0, LTC2449_CH1, LTC2449_CH2, LTC2449_CH3,
@@ -101,13 +104,14 @@ const uint16_t BUILD_1X_2X_COMMAND[2] = {LTC2449_SPEED_1X, LTC2449_SPEED_2X};   
 //! MISO timeout constant
 const uint16_t MISO_TIMEOUT = 1000;
 
-static int16_t OSR_mode = LTC2449_OSR_4096;    //!< The LTC2449 OSR setting
+static int16_t OSR_mode = LTC2449_OSR_32768;    //!< The LTC2449 OSR setting
 static int16_t two_x_mode = LTC2449_SPEED_1X;   //!< The LTC2449 2X Mode settings
-
+static int32_t SPI_SPEED = 4000000;            //!< SPI speed
 
 LTC2449::LTC2449(ILTC2449Listener* arg_p_conv_listener) :
 		_u16_adc_cmd(0x00),
 		_u32_adc_code(0x00),
+		_p_conv_listener(NULL),
 		_last_conv(),
 		_b_trash_next_conv(false)
 {
@@ -115,11 +119,13 @@ LTC2449::LTC2449(ILTC2449Listener* arg_p_conv_listener) :
 	{
 		register_listener(arg_p_conv_listener);
 	}
+	wiringPiSPISetup(LTC_2449_SPI_MODE, SPI_SPEED);
 	EventManager::getInstance()->addListener(ADC_CODE_READY_EVENT, this);
 }
 
 LTC2449::~LTC2449()
 {
+	wiringPiSPIClose(LTC_2449_SPI_CHANNEL);
 	EventManager::getInstance()->removeListener(ADC_CODE_READY_EVENT, this);
 	unregister_listener(_p_conv_listener);
 
@@ -165,7 +171,7 @@ LTC2449::EError LTC2449::read_single_ended(uint8_t arg_u8_channel)
 	/** Synchronously throws out last readings */
 	LOG_DEBUG_LN(F("\nADC Command: B%b"), _u16_adc_cmd);
 
-	if(!digitalRead(MISO))
+	if(!digitalRead(LTC2449_MISO))
 	{
 		/** conversion ready - read it and trash it */
 		read(LTC2449_CS, _u16_adc_cmd, &u32_adc_code);
@@ -179,7 +185,7 @@ LTC2449::EError LTC2449::read_single_ended(uint8_t arg_u8_channel)
 
 	/** wait next conversion */
 	EventManager::getInstance()->enableListener(ADC_CODE_READY_EVENT, this, true);
-	PCintPort::attachInterrupt(MISO, (PCIntvoidFuncPtr) (&endOfConversion), FALLING, this);
+	wiringPiISR(LTC2449_MISO, INT_EDGE_FALLING, (void (*)(void*))&endOfConversion, (void*) this);
 
 	return NO_ERROR;
 }
@@ -193,7 +199,7 @@ LTC2449::EError LTC2449::read_differential(EDiffPair arg_e_diffPair, int32_t* ar
 
     // Reads and displays a selected channel
 	_u16_adc_cmd = BUILD_COMMAND_DIFF[arg_e_diffPair] | OSR_mode | two_x_mode;
-    LOG_DEBUG_LN(F("\nADC Command: B%b"), adc_command);
+    LOG_DEBUG_LN(F("\nADC Command: B%b"), _u16_adc_cmd);
     if(EOC_timeout(LTC2449_CS, MISO_TIMEOUT))             // Checks for EOC with a timeout
       return(CONVERSION_TIME_OUT);
     read(LTC2449_CS, _u16_adc_cmd, &u32_adc_code);             // Throws out last reading
@@ -220,7 +226,8 @@ LTC2449::EError LTC2449::read_differential(EDiffPair arg_e_diffPair)
 	_u16_adc_cmd = BUILD_COMMAND_DIFF[arg_e_diffPair] | OSR_mode | two_x_mode;
 	LOG_DEBUG_LN(F("\nADC Command: B%b"), _u16_adc_cmd);
 
-	if(!digitalRead(MISO))
+	wiringPiISR(LTC2449_MISO, INT_EDGE_FALLING, (void (*)(void*))&endOfConversion, (void*) this);
+	if(!digitalRead(LTC2449_MISO))
 	{
 		/** conversion ready - read it and trash it */
 		read(LTC2449_CS, _u16_adc_cmd, &u32_adc_code);
@@ -234,7 +241,6 @@ LTC2449::EError LTC2449::read_differential(EDiffPair arg_e_diffPair)
 
 	// Now we're ready to start capture
 	EventManager::getInstance()->enableListener(ADC_CODE_READY_EVENT, this, true);
-	PCintPort::attachInterrupt(MISO, (PCIntvoidFuncPtr) (&endOfConversion), FALLING, this);
 	return NO_ERROR;
 }
 
@@ -246,7 +252,7 @@ int8_t LTC2449::EOC_timeout(uint8_t cs, uint16_t miso_timeout)
   digitalWrite(cs, LOW);                       //! 1) Pull CS low
   while (1)                             //! 2) Wait for SDO (MISO) to go low
   {
-    if (digitalRead(MISO) == 0) break;        //! 3) If SDO is low, break loop
+    if (digitalRead(LTC2449_MISO) == 0) break;        //! 3) If SDO is low, break loop
     if (timer_count++>miso_timeout)     // If timeout, return 1 (failure)
     {
     	digitalWrite(cs, HIGH);                  // Pull CS high
@@ -264,16 +270,15 @@ int8_t LTC2449::EOC_timeout(uint8_t cs, uint16_t miso_timeout)
 void LTC2449::read(uint8_t cs, uint16_t adc_command, uint32_t *adc_code)
 {
   uint8_t data[4];
-  uint8_t command[4];
 
-  command[3] = (adc_command >> 8) & 0xFF;
-  command[2] = adc_command & 0xFF;
-  command[1] = 0;
-  command[0] = 0;
+  data[0] = (adc_command >> 8) & 0xFF;
+  data[1] = adc_command & 0xFF;
+  data[2] = 0;
+  data[3] = 0;
 
-  spi_transfer_block(cs, command, data, (uint8_t)4);
+  wiringPiSPIDataRW(LTC_2449_SPI_CHANNEL, data, 4);
 
-  *adc_code = (((uint32_t)data[3] & 0xFF) << 24) | (((uint32_t)data[2] & 0xFF) << 16) | (((uint32_t)data[1] & 0xFF) << 8) | ((uint32_t)data[0] & 0xFF);
+  *adc_code = (((uint32_t)data[0] & 0xFF) << 24) | (((uint32_t)data[1] & 0xFF) << 16) | (((uint32_t)data[2] & 0xFF) << 8) | ((uint32_t)data[3] & 0xFF);
 }
 
 // Calculates the voltage corresponding to an adc code, given lsb weight (in volts) and the calibrated
@@ -330,23 +335,20 @@ LTC2449::EError LTC2449::adc_code_to_value(uint32_t arg_u32_adcCode, int32_t* ar
 	return NO_ERROR;
 }
 
-/**
- * CALLED UNDER INTERRUPT CONTEXT
- */
 void LTC2449::endOfConversion(LTC2449* arg_p_ltc2449)
 {
 	uint32_t loc_u32_conv_to_trash = 0;
 
-	PCintPort::detachInterrupt(MISO);
+	detachInterrupt(LTC2449_MISO);
 
 	/** Be sure of LOW pin state */
-	if(!digitalRead(MISO))
+	if(!digitalRead(LTC2449_MISO))
 	{
 		if(arg_p_ltc2449->_b_trash_next_conv)
 		{
 			arg_p_ltc2449->read(LTC2449_CS, arg_p_ltc2449->_u16_adc_cmd, &loc_u32_conv_to_trash);
 			arg_p_ltc2449->_b_trash_next_conv = false;
-			PCintPort::attachInterrupt(MISO, (PCIntvoidFuncPtr) (&endOfConversion), FALLING, arg_p_ltc2449);
+			wiringPiISR(LTC2449_MISO, INT_EDGE_FALLING, (void (*)(void*))&endOfConversion, (void*) arg_p_ltc2449);
 		}
 		else
 		{
@@ -358,16 +360,22 @@ void LTC2449::endOfConversion(LTC2449* arg_p_ltc2449)
 	}
 	else
 	{
-		PCintPort::attachInterrupt(MISO, (PCIntvoidFuncPtr) (&endOfConversion), FALLING, arg_p_ltc2449);
+		wiringPiISR(LTC2449_MISO, INT_EDGE_FALLING, (void (*)(void*))&endOfConversion, (void*) arg_p_ltc2449);
 	}
 }
 
 void LTC2449::processEvent(uint8_t eventCode, int eventParam)
 {
+	LTC2449::EError loc_e_ret = NO_ERROR;
+
 	if(eventCode == ADC_CODE_READY_EVENT)
 	{
 		read(LTC2449_CS, _u16_adc_cmd, &_u32_adc_code);
-		adc_code_to_value(_u32_adc_code, &_last_conv._s32_conv_value);
+		loc_e_ret = adc_code_to_value(_u32_adc_code, &_last_conv._s32_conv_value);
+		if(loc_e_ret != NO_ERROR){
+			LOG_ERROR("conversion error -code = %d", loc_e_ret);
+			return;
+		}
 
 		if(_p_conv_listener != NULL)
 		{
