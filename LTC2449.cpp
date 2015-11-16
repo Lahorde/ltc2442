@@ -68,6 +68,8 @@
 #include "pinout.h"
 #include "events.h"
 
+#include <stdio.h>
+
 #define ADC_DATA_AND_SUB_LSB_MASK     ((1UL << (CONVERSION_24_BITS_POS + LTC2449_RESOLUTION)) - 1)
 #define ADC_NEGATIVE_VALUE_MASK       ((1UL << EOC_BIT_POS) | (1UL << DUMMY_BIT_POS) | (1UL << SIGN_BIT_POS))
 
@@ -104,7 +106,7 @@ const uint16_t BUILD_1X_2X_COMMAND[2] = {LTC2449_SPEED_1X, LTC2449_SPEED_2X};   
 //! MISO timeout constant
 const uint16_t MISO_TIMEOUT = 1000;
 
-static int16_t OSR_mode = LTC2449_OSR_32768;    //!< The LTC2449 OSR setting
+static int16_t OSR_mode = LTC2449_OSR_16384;    //!< The LTC2449 OSR setting
 static int16_t two_x_mode = LTC2449_SPEED_1X;   //!< The LTC2449 2X Mode settings
 static int32_t SPI_SPEED = 4000000;            //!< SPI speed
 
@@ -155,7 +157,7 @@ LTC2449::EError LTC2449::read_single_ended(uint8_t arg_u8_channel, int32_t* arg_
 		return(CONVERSION_TIME_OUT);
 
 	read(LTC2449_CS, adc_command, &u32_adc_code);     // Now we're ready to read the desired data
-	LOG_DEBUG_LN("Channel %d - Received Code: 0x%x", arg_u8_channel, u32_adc_code);
+	LOG_DEBUG_LN("Channel %d - Received Code: %d", arg_u8_channel, u32_adc_code);
 
 	return adc_code_to_value(u32_adc_code, arg_s32_adc_value);
 }
@@ -249,7 +251,7 @@ int8_t LTC2449::EOC_timeout(uint8_t cs, uint16_t miso_timeout)
 // Checks for EOC with a specified timeout (ms)
 {
   uint16_t timer_count = 0;             // Timer count for MISO
-  digitalWrite(cs, LOW);                       //! 1) Pull CS low
+  digitalWrite(cs, LOW);                //! 1) Pull CS low
   while (1)                             //! 2) Wait for SDO (MISO) to go low
   {
     if (digitalRead(LTC2449_MISO) == 0) break;        //! 3) If SDO is low, break loop
@@ -339,8 +341,6 @@ void LTC2449::endOfConversion(LTC2449* arg_p_ltc2449)
 {
 	uint32_t loc_u32_conv_to_trash = 0;
 
-	detachInterrupt(LTC2449_MISO);
-
 	/** Be sure of LOW pin state */
 	if(!digitalRead(LTC2449_MISO))
 	{
@@ -348,10 +348,10 @@ void LTC2449::endOfConversion(LTC2449* arg_p_ltc2449)
 		{
 			arg_p_ltc2449->read(LTC2449_CS, arg_p_ltc2449->_u16_adc_cmd, &loc_u32_conv_to_trash);
 			arg_p_ltc2449->_b_trash_next_conv = false;
-			wiringPiISR(LTC2449_MISO, INT_EDGE_FALLING, (void (*)(void*))&endOfConversion, (void*) arg_p_ltc2449);
 		}
 		else
 		{
+			detachInterrupt(LTC2449_MISO);
 			/** Read and process data later (in normal mode) */
 			EventManager::getInstance()->queueEvent( ADC_CODE_READY_EVENT,
 				(int) arg_p_ltc2449,
@@ -360,7 +360,7 @@ void LTC2449::endOfConversion(LTC2449* arg_p_ltc2449)
 	}
 	else
 	{
-		wiringPiISR(LTC2449_MISO, INT_EDGE_FALLING, (void (*)(void*))&endOfConversion, (void*) arg_p_ltc2449);
+		/** Nothing to do - wait next conversion */
 	}
 }
 
