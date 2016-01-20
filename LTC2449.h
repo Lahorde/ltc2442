@@ -302,6 +302,7 @@ public:
 	public:
 		virtual ~ILTC2449Listener(){};
 		virtual void conversionAvailable(LTC2449Conversion& arg_ltc2449_conversion) = 0;
+		virtual void conversionError(EError& loc_e_error, LTC2449Conversion& arg_ltc2449_badConversion) = 0;
 	};
 
 /** members */
@@ -397,6 +398,9 @@ private:
      * Called when a conversion is ready to be read
 	 */
 	static void endOfConversion(LTC2449* arg_p_ltc2449);
+
+	/**	Conversion ready - read it */
+	void readLastConv(void);
 
 	/** EventListener */
 	void processEvent(uint8_t eventCode, int eventParam);

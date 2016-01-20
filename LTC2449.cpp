@@ -106,7 +106,7 @@ const uint16_t BUILD_1X_2X_COMMAND[2] = {LTC2449_SPEED_1X, LTC2449_SPEED_2X};   
 //! MISO timeout constant
 const uint16_t MISO_TIMEOUT = 1000;
 
-static int16_t OSR_mode = LTC2449_OSR_16384;    //!< The LTC2449 OSR setting
+static int16_t OSR_mode = LTC2449_OSR_2048;    //!< The LTC2449 OSR setting
 static int16_t two_x_mode = LTC2449_SPEED_1X;   //!< The LTC2449 2X Mode settings
 static int32_t SPI_SPEED = 4000000;            //!< SPI speed
 
@@ -143,10 +143,13 @@ LTC2449::EError LTC2449::read_single_ended(uint8_t arg_u8_channel, int32_t* arg_
 	uint32_t u32_adc_code = 0; // The LTC2449 code
 
 	adc_command = BUILD_COMMAND_SINGLE_ENDED[arg_u8_channel] | OSR_mode | two_x_mode;
-	LOG_DEBUG_LN("\nADC Command: B%b", adc_command);
+	_last_conv.setChannel(arg_u8_channel);
+
+	LOG_DEBUG_LN("\nSingle ended sync - ADC Command: B%b", adc_command);
 	if(EOC_timeout(LTC2449_CS, MISO_TIMEOUT))     // Checks for EOC with a timeout
 		return(CONVERSION_TIME_OUT);
 	read(LTC2449_CS, adc_command, &u32_adc_code);     // Throws out last reading
+
 	if (two_x_mode)
 	{
 		read(LTC2449_CS, adc_command, &u32_adc_code);   // Throws out an extra reading in 2x mode
@@ -166,18 +169,28 @@ LTC2449::EError LTC2449::read_single_ended(uint8_t arg_u8_channel, int32_t* arg_
 LTC2449::EError LTC2449::read_single_ended(uint8_t arg_u8_channel)
 {
 	uint32_t u32_adc_code = 0; // The LTC2449 code
+	int loc_e_ret;
 
 	_u16_adc_cmd = BUILD_COMMAND_SINGLE_ENDED[arg_u8_channel] | OSR_mode | two_x_mode;
 	_last_conv.setChannel(arg_u8_channel);
 
 	/** Synchronously throws out last readings */
-	LOG_DEBUG_LN(F("\nADC Command: B%b"), _u16_adc_cmd);
+	LOG_DEBUG_LN(F("\nSingle ended async - ADC Command: B%b"), _u16_adc_cmd);
+
+	wiringPiISR(LTC2449_MISO, INT_EDGE_FALLING, (void (*)(void*))&endOfConversion, (void*) this);
 
 	if(!digitalRead(LTC2449_MISO))
 	{
 		/** conversion ready - read it and trash it */
 		read(LTC2449_CS, _u16_adc_cmd, &u32_adc_code);
 		_b_trash_next_conv = false;
+
+		loc_e_ret = adc_code_to_value(_u32_adc_code, &_last_conv._s32_conv_value);
+		if(loc_e_ret != NO_ERROR){
+			LOG_ERROR("read_single_ended- conversion error -code = %d", loc_e_ret);
+		}
+
+
 	}
 	else
 	{
@@ -185,10 +198,9 @@ LTC2449::EError LTC2449::read_single_ended(uint8_t arg_u8_channel)
 		_b_trash_next_conv = true;
 	}
 
-	/** wait next conversion */
+	// Now we're ready to start capture
 	EventManager::getInstance()->enableListener(ADC_CODE_READY_EVENT, this, true);
-	wiringPiISR(LTC2449_MISO, INT_EDGE_FALLING, (void (*)(void*))&endOfConversion, (void*) this);
-
+	wiringPiISRStart(LTC2449_MISO);
 	return NO_ERROR;
 }
 
@@ -201,7 +213,7 @@ LTC2449::EError LTC2449::read_differential(EDiffPair arg_e_diffPair, int32_t* ar
 
     // Reads and displays a selected channel
 	_u16_adc_cmd = BUILD_COMMAND_DIFF[arg_e_diffPair] | OSR_mode | two_x_mode;
-    LOG_DEBUG_LN(F("\nADC Command: B%b"), _u16_adc_cmd);
+	LOG_DEBUG_LN(F("\nDiff sync - ADC Command: B%b"), _u16_adc_cmd);
     if(EOC_timeout(LTC2449_CS, MISO_TIMEOUT))             // Checks for EOC with a timeout
       return(CONVERSION_TIME_OUT);
     read(LTC2449_CS, _u16_adc_cmd, &u32_adc_code);             // Throws out last reading
@@ -226,7 +238,7 @@ LTC2449::EError LTC2449::read_differential(EDiffPair arg_e_diffPair)
 	/** Synchronously throws out last readings */
 	_last_conv.setDiffPair(arg_e_diffPair);
 	_u16_adc_cmd = BUILD_COMMAND_DIFF[arg_e_diffPair] | OSR_mode | two_x_mode;
-	LOG_DEBUG_LN(F("\nADC Command: B%b"), _u16_adc_cmd);
+	LOG_DEBUG_LN(F("\nDiff async - ADC Command: B%b"), _u16_adc_cmd);
 
 	wiringPiISR(LTC2449_MISO, INT_EDGE_FALLING, (void (*)(void*))&endOfConversion, (void*) this);
 	if(!digitalRead(LTC2449_MISO))
@@ -237,12 +249,14 @@ LTC2449::EError LTC2449::read_differential(EDiffPair arg_e_diffPair)
 	}
 	else
 	{
+		LOG_DEBUG_LN("read_differential will trash - %d\n", millis());
 		/** conversion on going - remember to trash it */
 		_b_trash_next_conv = true;
 	}
 
 	// Now we're ready to start capture
 	EventManager::getInstance()->enableListener(ADC_CODE_READY_EVENT, this, true);
+	wiringPiISRStart(LTC2449_MISO);
 	return NO_ERROR;
 }
 
@@ -364,23 +378,33 @@ void LTC2449::endOfConversion(LTC2449* arg_p_ltc2449)
 	}
 }
 
-void LTC2449::processEvent(uint8_t eventCode, int eventParam)
+void LTC2449::readLastConv(void)
 {
 	LTC2449::EError loc_e_ret = NO_ERROR;
 
-	if(eventCode == ADC_CODE_READY_EVENT)
-	{
-		read(LTC2449_CS, _u16_adc_cmd, &_u32_adc_code);
-		loc_e_ret = adc_code_to_value(_u32_adc_code, &_last_conv._s32_conv_value);
-		if(loc_e_ret != NO_ERROR){
-			LOG_ERROR("conversion error -code = %d", loc_e_ret);
-			return;
+	read(LTC2449_CS, _u16_adc_cmd, &_u32_adc_code);
+	loc_e_ret = adc_code_to_value(_u32_adc_code, &_last_conv._s32_conv_value);
+	if(loc_e_ret != NO_ERROR){
+		LOG_ERROR("conversion error -code = %d", loc_e_ret);
+		if(_p_conv_listener != NULL)
+		{
+			_p_conv_listener->conversionError(loc_e_ret, _last_conv);
 		}
-
+	}
+	else
+	{
 		if(_p_conv_listener != NULL)
 		{
 			_p_conv_listener->conversionAvailable(_last_conv);
 		}
+	}
+}
+
+void LTC2449::processEvent(uint8_t eventCode, int eventParam)
+{
+	if(eventCode == ADC_CODE_READY_EVENT)
+	{
+		readLastConv();
 	}
 	else
 	{
