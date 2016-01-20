@@ -141,6 +141,7 @@ Read Channel 0 in Single-Ended with OSR of 65536
 #include <logger.h>
 
 #define LTC2449_RESOLUTION          24
+#define LTC2449_OUT_OF_RANGE_VAL    0x20000000U
 #define LTC2449_SUB_LSB_RESOLUTION  5
 
 /*! @name Mode Configuration

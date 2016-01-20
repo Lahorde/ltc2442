@@ -106,7 +106,7 @@ const uint16_t BUILD_1X_2X_COMMAND[2] = {LTC2449_SPEED_1X, LTC2449_SPEED_2X};   
 //! MISO timeout constant
 const uint16_t MISO_TIMEOUT = 1000;
 
-static int16_t OSR_mode = LTC2449_OSR_8192;    //!< The LTC2449 OSR setting
+static int16_t OSR_mode = LTC2449_OSR_32768;    //!< The LTC2449 OSR setting
 static int16_t two_x_mode = LTC2449_SPEED_1X;   //!< The LTC2449 2X Mode settings
 static int32_t SPI_SPEED = 4000000;            //!< SPI speed
 
@@ -303,6 +303,7 @@ void LTC2449::cal_voltage(int32_t zero_code, int32_t fs_code, float zero_voltage
 LTC2449::EError LTC2449::adc_code_to_value(uint32_t arg_u32_adcCode, int32_t* arg_ps32_adcValue)
 {
 	bool loc_b_positive = (arg_u32_adcCode >> SIGN_BIT_POS) & 1;
+	LOG_DEBUG_LN(F("ADC code: B%b"), arg_u32_adcCode);
 	*arg_ps32_adcValue = 0;
 
 	if( arg_u32_adcCode & (1UL << EOC_BIT_POS)){
@@ -326,7 +327,7 @@ LTC2449::EError LTC2449::adc_code_to_value(uint32_t arg_u32_adcCode, int32_t* ar
 	{
 		*arg_ps32_adcValue |= ADC_NEGATIVE_VALUE_MASK;
 	}
-
+	LOG_DEBUG_LN(F("adc with sub LSB bits = %d - without LSB bits = %d"), *arg_ps32_adcValue, (*arg_ps32_adcValue >> 5));
 	return NO_ERROR;
 }
 
@@ -364,7 +365,7 @@ void LTC2449::readLastConv(void)
 	read(LTC2449_CS, _u16_adc_cmd, &_u32_adc_code);
 	loc_e_ret = adc_code_to_value(_u32_adc_code, &_last_conv._s32_conv_value);
 	if(loc_e_ret != NO_ERROR){
-		LOG_ERROR("conversion error -code = %d", loc_e_ret);
+		LOG_ERROR("readLastConv - conversion error - code = %d", loc_e_ret);
 		if(_p_conv_listener != NULL)
 		{
 			_p_conv_listener->conversionError(loc_e_ret, _last_conv);
@@ -423,6 +424,7 @@ void LTC2449::processEvent(uint8_t eventCode, int eventParam)
 {
 	if(eventCode == ADC_CODE_READY_EVENT)
 	{
+		EventManager::getInstance()->enableListener(ADC_CODE_READY_EVENT, this, false);
 		readLastConv();
 	}
 	else
