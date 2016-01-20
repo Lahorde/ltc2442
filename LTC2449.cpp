@@ -106,7 +106,7 @@ const uint16_t BUILD_1X_2X_COMMAND[2] = {LTC2449_SPEED_1X, LTC2449_SPEED_2X};   
 //! MISO timeout constant
 const uint16_t MISO_TIMEOUT = 1000;
 
-static int16_t OSR_mode = LTC2449_OSR_2048;    //!< The LTC2449 OSR setting
+static int16_t OSR_mode = LTC2449_OSR_8192;    //!< The LTC2449 OSR setting
 static int16_t two_x_mode = LTC2449_SPEED_1X;   //!< The LTC2449 2X Mode settings
 static int32_t SPI_SPEED = 4000000;            //!< SPI speed
 
@@ -142,6 +142,9 @@ LTC2449::EError LTC2449::read_single_ended(uint8_t arg_u8_channel, int32_t* arg_
 	uint16_t adc_command;     // The LTC2449 command word
 	uint32_t u32_adc_code = 0; // The LTC2449 code
 
+	/** In all cases first 3 bits set to 101 => current conversion channel / speed are
+	* those selected in previous read command
+	*/
 	adc_command = BUILD_COMMAND_SINGLE_ENDED[arg_u8_channel] | OSR_mode | two_x_mode;
 	_last_conv.setChannel(arg_u8_channel);
 
@@ -168,39 +171,22 @@ LTC2449::EError LTC2449::read_single_ended(uint8_t arg_u8_channel, int32_t* arg_
 //! Read channels in single-ended mode
 LTC2449::EError LTC2449::read_single_ended(uint8_t arg_u8_channel)
 {
-	uint32_t u32_adc_code = 0; // The LTC2449 code
-	int loc_e_ret;
-
-	_u16_adc_cmd = BUILD_COMMAND_SINGLE_ENDED[arg_u8_channel] | OSR_mode | two_x_mode;
-	_last_conv.setChannel(arg_u8_channel);
-
-	/** Synchronously throws out last readings */
-	LOG_DEBUG_LN(F("\nSingle ended async - ADC Command: B%b"), _u16_adc_cmd);
-
-	wiringPiISR(LTC2449_MISO, INT_EDGE_FALLING, (void (*)(void*))&endOfConversion, (void*) this);
-
-	if(!digitalRead(LTC2449_MISO))
+	if(_last_conv.getChannel() == INVALID_CHANNEL &&
+			_last_conv.getDiffPair() == INVALID_DIFF_PAIR)
 	{
-		/** conversion ready - read it and trash it */
-		read(LTC2449_CS, _u16_adc_cmd, &u32_adc_code);
-		_b_trash_next_conv = false;
-
-		loc_e_ret = adc_code_to_value(_u32_adc_code, &_last_conv._s32_conv_value);
-		if(loc_e_ret != NO_ERROR){
-			LOG_ERROR("read_single_ended- conversion error -code = %d", loc_e_ret);
-		}
-
-
-	}
-	else
-	{
-		/** conversion on going - remember to trash it */
 		_b_trash_next_conv = true;
 	}
 
-	// Now we're ready to start capture
-	EventManager::getInstance()->enableListener(ADC_CODE_READY_EVENT, this, true);
-	wiringPiISRStart(LTC2449_MISO);
+	/** In all cases first 3 bits set to 101 => current conversion channel / speed are
+	 * those selected in previous read command
+	 */
+	_u16_adc_cmd = BUILD_COMMAND_SINGLE_ENDED[arg_u8_channel] | OSR_mode | two_x_mode;
+	_last_conv.setChannel(arg_u8_channel);
+
+	LOG_DEBUG_LN(F("\nSingle ended async on channel %d - ADC Command: B%b"), arg_u8_channel, _u16_adc_cmd);
+
+	prepareAsyncRead();
+
 	return NO_ERROR;
 }
 
@@ -211,9 +197,12 @@ LTC2449::EError LTC2449::read_differential(EDiffPair arg_e_diffPair, int32_t* ar
 {
 	uint32_t u32_adc_code = 0;    // The LTC2449 code
 
-    // Reads and displays a selected channel
+	/** In all cases first 3 bits set to 101 => current conversion channel / speed are
+	 * those selected in previous read command
+	 */
 	_u16_adc_cmd = BUILD_COMMAND_DIFF[arg_e_diffPair] | OSR_mode | two_x_mode;
 	LOG_DEBUG_LN(F("\nDiff sync - ADC Command: B%b"), _u16_adc_cmd);
+
     if(EOC_timeout(LTC2449_CS, MISO_TIMEOUT))             // Checks for EOC with a timeout
       return(CONVERSION_TIME_OUT);
     read(LTC2449_CS, _u16_adc_cmd, &u32_adc_code);             // Throws out last reading
@@ -233,30 +222,20 @@ LTC2449::EError LTC2449::read_differential(EDiffPair arg_e_diffPair, int32_t* ar
 
 LTC2449::EError LTC2449::read_differential(EDiffPair arg_e_diffPair)
 {
-	uint32_t u32_adc_code = 0;    // The LTC2449 code
-
-	/** Synchronously throws out last readings */
-	_last_conv.setDiffPair(arg_e_diffPair);
-	_u16_adc_cmd = BUILD_COMMAND_DIFF[arg_e_diffPair] | OSR_mode | two_x_mode;
-	LOG_DEBUG_LN(F("\nDiff async - ADC Command: B%b"), _u16_adc_cmd);
-
-	wiringPiISR(LTC2449_MISO, INT_EDGE_FALLING, (void (*)(void*))&endOfConversion, (void*) this);
-	if(!digitalRead(LTC2449_MISO))
+	if(_last_conv.getChannel() == INVALID_CHANNEL &&
+			_last_conv.getDiffPair() == INVALID_DIFF_PAIR)
 	{
-		/** conversion ready - read it and trash it */
-		read(LTC2449_CS, _u16_adc_cmd, &u32_adc_code);
-		_b_trash_next_conv = false;
-	}
-	else
-	{
-		LOG_DEBUG_LN("read_differential will trash - %d\n", millis());
-		/** conversion on going - remember to trash it */
 		_b_trash_next_conv = true;
 	}
+	_last_conv.setDiffPair(arg_e_diffPair);
 
-	// Now we're ready to start capture
-	EventManager::getInstance()->enableListener(ADC_CODE_READY_EVENT, this, true);
-	wiringPiISRStart(LTC2449_MISO);
+	/** In all cases first 3 bits set to 101 => current conversion channel / speed are
+	 * those selected in previous read command
+	 */
+	_u16_adc_cmd = BUILD_COMMAND_DIFF[arg_e_diffPair] | OSR_mode | two_x_mode;
+	LOG_DEBUG_LN(F("\nDiff async on pair %d- ADC Command: B%b"), arg_e_diffPair, _u16_adc_cmd);
+
+	prepareAsyncRead();
 	return NO_ERROR;
 }
 
@@ -395,8 +374,48 @@ void LTC2449::readLastConv(void)
 	{
 		if(_p_conv_listener != NULL)
 		{
+			LOG_DEBUG_LN("conversionAvailable diff measure = %d - value = %l", _last_conv.isDiffMeasure(), _last_conv._s32_conv_value);
 			_p_conv_listener->conversionAvailable(_last_conv);
 		}
+	}
+}
+
+
+void LTC2449::prepareAsyncRead(void)
+{
+	uint32_t u32_adc_code = 0;    // The LTC2449 code
+
+	/** this calls takes some ms - call it before checking EOC */
+	wiringPiISR(LTC2449_MISO, INT_EDGE_FALLING, (void (*)(void*))&endOfConversion, (void*) this);
+
+	if(!digitalRead(LTC2449_MISO)) /** conversion ready */
+	{
+		if(_b_trash_next_conv)
+		{
+			//wiringPiISR(LTC2449_MISO, INT_EDGE_FALLING, (void (*)(void*))&endOfConversion, (void*) this);
+			/**  read it and trash it */
+			read(LTC2449_CS, _u16_adc_cmd, &u32_adc_code);
+			_b_trash_next_conv = false;
+
+			// Now we're ready to start capture
+			EventManager::getInstance()->enableListener(ADC_CODE_READY_EVENT, this, true);
+			wiringPiISRStart(LTC2449_MISO);
+		}
+		else /** current conversion valid - read it asynchronously */
+		{
+			detachInterrupt(LTC2449_MISO);
+			EventManager::getInstance()->enableListener(ADC_CODE_READY_EVENT, this, true);
+			/** Read and process data later */
+			EventManager::getInstance()->queueEvent( ADC_CODE_READY_EVENT,
+				(int)this,
+				EventManager::kHighPriority );
+		}
+	}
+	else /** conversion not ready - wait EOC low  */
+	{
+		// Now we're ready to start capture
+		EventManager::getInstance()->enableListener(ADC_CODE_READY_EVENT, this, true);
+		wiringPiISRStart(LTC2449_MISO);
 	}
 }
 

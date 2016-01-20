@@ -402,6 +402,9 @@ private:
 	/**	Conversion ready - read it */
 	void readLastConv(void);
 
+	/**	Prepare asynchronous read */
+	void prepareAsyncRead(void);
+
 	/** EventListener */
 	void processEvent(uint8_t eventCode, int eventParam);
 
