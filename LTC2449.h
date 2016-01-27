@@ -302,8 +302,8 @@ public:
 	{
 	public:
 		virtual ~ILTC2449Listener(){};
-		virtual void conversionAvailable(LTC2449Conversion& arg_ltc2449_conversion) = 0;
-		virtual void conversionError(EError& loc_e_error, LTC2449Conversion& arg_ltc2449_badConversion) = 0;
+		virtual void conversionAvailable(LTC2449Conversion& arg_ltc2449_conversion, LTC2449Conversion& arg_ltc2449_nextConversion) = 0;
+		virtual void conversionError(EError& loc_e_error, LTC2449Conversion& arg_ltc2449_badConversion, LTC2449Conversion& arg_ltc2449_nextConversion) = 0;
 	};
 
 /** members */
@@ -315,8 +315,8 @@ private:
 	uint16_t _u16_adc_cmd;
 	uint32_t _u32_adc_code;
 	ILTC2449Listener* _p_conv_listener;
-	LTC2449Conversion _last_conv;
-	bool _b_trash_next_conv;
+	LTC2449Conversion _next_conv;
+	LTC2449Conversion _async_conv;
 
 public:
 	LTC2449(ILTC2449Listener* arg_p_conv_listener = NULL);
@@ -364,9 +364,10 @@ private:
 
 	//! Reads from LTC2449.
 	//! @return  void
-	static void read(uint8_t cs,               //!< Chip Select pin
+	void read(uint8_t cs,               //!< Chip Select pin
 	                  uint16_t adc_command,     //!< 2 byte command written to LTC2449
-	                  uint32_t *adc_code        //!< 4 byte conversion code read from LTC2449
+					  LTC2449Conversion& arg_p_nextConv, //!<Next conversion read
+					  uint32_t *adc_code        //!< 4 byte conversion code read from LTC2449
 	                 );
 
 	//! Calculates the voltage corresponding to an adc code, given lsb weight (in volts) and the calibrated
@@ -403,7 +404,9 @@ private:
 	/**	Conversion ready - read it */
 	void readLastConv(void);
 
-	/**	Prepare asynchronous read */
+	/**
+	 * Prepare asynchronous read
+	 */
 	void prepareAsyncRead(void);
 
 	/** EventListener */
