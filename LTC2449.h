@@ -138,7 +138,7 @@ Read Channel 0 in Single-Ended with OSR of 65536
 #define LTC2449_H
 
 #include <event_manager.h>
-#include <logger.h>
+#include <assert.h>
 
 #define LTC2449_RESOLUTION          24
 #define LTC2449_OUT_OF_RANGE_VAL    0x20000000U
@@ -339,8 +339,8 @@ public:
 	 * @param arg_p_conv_listener
 	 */
 	inline void register_listener(ILTC2449Listener* arg_p_conv_listener){
-		ASSERT(arg_p_conv_listener != NULL);
-		ASSERT(_p_conv_listener == NULL);
+		assert(arg_p_conv_listener != NULL);
+		assert(_p_conv_listener == NULL);
 		_p_conv_listener = arg_p_conv_listener;
 	}
 
@@ -348,8 +348,8 @@ public:
 	 * @param arg_p_conv_listener
 	 */
 	inline void unregister_listener(ILTC2449Listener* arg_p_conv_listener){
-		ASSERT(arg_p_conv_listener != NULL);
-		ASSERT(_p_conv_listener == arg_p_conv_listener);
+		assert(arg_p_conv_listener != NULL);
+		assert(_p_conv_listener == arg_p_conv_listener);
 		/** No synchronization need : listener called in normal context */
 		_p_conv_listener = NULL;
 	}
