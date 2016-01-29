@@ -15,5 +15,8 @@ A pinout file pinout.h describing used PINS for your application must be provide
 ## Events
 An event file events.h describing all application events. All events listeners will be notified in user context. Events can be emitted in interrupted context.
 
+# Example
+ * 
+
 #TODO
 Deliver sample application
